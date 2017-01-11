@@ -37,12 +37,13 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, UII
                 
                 if(captureSession.canAddOutput(photoOutput)){
                     captureSession.addOutput(photoOutput)
+                    captureSession.startRunning()
+
                     previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
                     previewLayer?.videoGravity = AVLayerVideoGravityResizeAspectFill
-                    previewLayer?.connection.videoOrientation = AVCaptureVideoOrientation.portrait
+                    previewLayer?.frame = cameraView.bounds
                     
                     cameraView.layer.addSublayer(previewLayer!)
-                    captureSession.startRunning()
                 }
             }
             
@@ -78,8 +79,8 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, UII
         let settings = AVCapturePhotoSettings()
         let previewPixelType = settings.availablePreviewPhotoPixelFormatTypes.first!
         let previewFormat = [kCVPixelBufferPixelFormatTypeKey as String: previewPixelType,
-                             kCVPixelBufferWidthKey as String: 1080,
-                             kCVPixelBufferHeightKey as String: 1920,
+                             kCVPixelBufferWidthKey as String: 160,
+                             kCVPixelBufferHeightKey as String: 160,
                              ]
         settings.previewPhotoFormat = previewFormat
         photoOutput.capturePhoto(with: settings, delegate: self)
@@ -93,9 +94,9 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, UII
             print(error.localizedDescription)
         }
         
+        // Without previewPhotoSampleBuffer
         if let sampleBuffer = photoSampleBuffer,
-            let previewBuffer = previewPhotoSampleBuffer,
-            let dataImage = AVCapturePhotoOutput.jpegPhotoDataRepresentation(forJPEGSampleBuffer: sampleBuffer, previewPhotoSampleBuffer: previewBuffer) {
+            let dataImage = AVCapturePhotoOutput.jpegPhotoDataRepresentation(forJPEGSampleBuffer: sampleBuffer, previewPhotoSampleBuffer: nil) {
                 self.imageView.image = UIImage(data: dataImage)
                 self.imageView.isHidden = false
                 self.previewLayer?.isHidden = true
