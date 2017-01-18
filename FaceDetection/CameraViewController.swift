@@ -7,28 +7,29 @@
 //
 
 import UIKit
+import ImageIO
 import AVFoundation
 
-class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate  {
-
+class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, AVCaptureVideoDataOutputSampleBufferDelegate  {
+    
     @IBOutlet weak var cameraView: UIView!
     @IBOutlet weak var imageView: UIImageView!
     @IBOutlet weak var face: UILabel!
     
     var faceBoxes = [UIView()]
-
+    
     var captureSession = AVCaptureSession()
     var photoOutput = AVCapturePhotoOutput()
     var previewLayer: AVCaptureVideoPreviewLayer?
-    var sessionOutputSetting = AVCapturePhotoSettings(format: [AVVideoCodecKey:AVVideoCodecJPEG])
     
-
+    
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(true)
-        
-        captureSession.sessionPreset = AVCaptureSessionPresetHigh
-        
-        let backCamera = AVCaptureDevice.defaultDevice(withMediaType: AVMediaTypeVideo)
+
+        captureSession.sessionPreset = AVCaptureSessionPresetPhoto
+
+        // Choose Camera Type
+        let backCamera = AVCaptureDevice.defaultDevice(withDeviceType: .builtInWideAngleCamera, mediaType: AVMediaTypeVideo, position: .back)
         do {
             let input = try AVCaptureDeviceInput(device: backCamera)
             
@@ -37,11 +38,13 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, UII
                 
                 if(captureSession.canAddOutput(photoOutput)){
                     captureSession.addOutput(photoOutput)
+                    
                     captureSession.startRunning()
-
+                    
+                    
                     previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
-                    previewLayer?.videoGravity = AVLayerVideoGravityResizeAspectFill
                     previewLayer?.frame = cameraView.bounds
+                    previewLayer?.videoGravity = AVLayerVideoGravityResizeAspectFill
                     
                     cameraView.layer.addSublayer(previewLayer!)
                 }
@@ -60,48 +63,40 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, UII
     }
     
     
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(true)
-        previewLayer?.frame = cameraView.bounds
-    }
-
-
-    
-    
     func captureImage() {
         
         for faceBox in self.faceBoxes {
             faceBox.removeFromSuperview()
         }
         
-        let videoConnection = photoOutput.connection(withMediaType: AVMediaTypeVideo)
-        videoConnection?.videoOrientation = AVCaptureVideoOrientation.portrait
         let settings = AVCapturePhotoSettings()
-        let previewPixelType = settings.availablePreviewPhotoPixelFormatTypes.first!
-        let previewFormat = [kCVPixelBufferPixelFormatTypeKey as String: previewPixelType,
-                             kCVPixelBufferWidthKey as String: 160,
-                             kCVPixelBufferHeightKey as String: 160,
-                             ]
+        
+        let pixelFormatType = settings.availablePreviewPhotoPixelFormatTypes.first!.uint32Value
+        let previewFormat = [kCVPixelBufferPixelFormatTypeKey as String: pixelFormatType
+            //                             kCVPixelBufferWidthKey as String: 160,
+            //                             kCVPixelBufferHeightKey as String: 160,
+        ]
         settings.previewPhotoFormat = previewFormat
         photoOutput.capturePhoto(with: settings, delegate: self)
-
+        
     }
-
+    
     
     
     func capture(_ captureOutput: AVCapturePhotoOutput, didFinishProcessingPhotoSampleBuffer photoSampleBuffer: CMSampleBuffer?, previewPhotoSampleBuffer: CMSampleBuffer?, resolvedSettings: AVCaptureResolvedPhotoSettings, bracketSettings: AVCaptureBracketedStillImageSettings?, error: Error?) {
+        print("didFinishProcessingPhotoSampleBuffer")
+        
         if let error = error {
             print(error.localizedDescription)
         }
         
-        // Without previewPhotoSampleBuffer
         if let sampleBuffer = photoSampleBuffer,
             let dataImage = AVCapturePhotoOutput.jpegPhotoDataRepresentation(forJPEGSampleBuffer: sampleBuffer, previewPhotoSampleBuffer: nil) {
-                self.imageView.image = UIImage(data: dataImage)
-                self.imageView.isHidden = false
-                self.previewLayer?.isHidden = true
-                self.findFace(img: self.imageView.image!)
-            }
+            self.imageView.image = UIImage(data: dataImage)
+            self.imageView.isHidden = false
+            self.previewLayer?.isHidden = true
+            self.findFace(img: self.imageView.image!)
+        }
     }
     
     var didTakePhoto = Bool()
@@ -130,17 +125,24 @@ extension CameraViewController {
     func findFace(img: UIImage) {
         guard let faceImage = CIImage(image: img) else { return }
         let accuracy = [CIDetectorAccuracy: CIDetectorAccuracyHigh]
-        let faceDetector = CIDetector(ofType: CIDetectorTypeFace, context: nil, options: accuracy)
+        
         
         
         // For converting the Core Image Coordinates to UIView Coordinates
         let detectedImageSize = faceImage.extent.size
         var transform = CGAffineTransform(scaleX: 1, y: -1)
         transform = transform.translatedBy(x: 0, y: -detectedImageSize.height)
+        var faceFeatures: [CIFaceFeature]!
         
-        // [CIDetectorSmile: true, CIDetectorEyeBlink: true]
-        if let faces = faceDetector?.features(in: faceImage, options: nil) {
-            for face in faces as! [CIFaceFeature] {
+        // https://github.com/zhangao0086/iOS-CoreImage-Swift/blob/master/FaceDetection/FaceDetection/ViewController.swift
+        if let faceDetector = CIDetector(ofType: CIDetectorTypeFace, context: nil, options: accuracy) {
+            if let orientation = faceImage.properties[kCGImagePropertyOrientation as String] {
+                faceFeatures = faceDetector.features(in: faceImage, options: [CIDetectorImageOrientation: orientation]) as! [CIFaceFeature]
+            } else {
+                faceFeatures = faceDetector.features(in: faceImage, options: nil) as! [CIFaceFeature]
+            }
+            
+            for face in faceFeatures {
                 
                 // Apply the transform to convert the coordinates
                 var faceViewBounds =  face.bounds.applying(transform)
@@ -157,7 +159,7 @@ extension CameraViewController {
                 faceViewBounds.origin.y += offsetY
                 
                 showBounds(at: faceViewBounds)
-                                
+                
                 if face.hasSmile {
                     print("😀")
                 }
@@ -171,14 +173,19 @@ extension CameraViewController {
                 }
             }
             
-            if faces.count != 0 {
+            if faceFeatures.count != 0 {
                 face.isHidden = false
-                print("Number of faces: \(faces.count)")
+                print("Number of faces: \(faceFeatures.count)")
             } else {
                 print("No faces 😢")
                 face.isHidden = true
             }
+            
+            
+            
         }
+        
+        
         
         
     }
